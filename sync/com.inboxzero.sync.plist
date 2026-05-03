@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd config para sincronizar InboxZero cada 5 minutos en macOS.
+
+  Instalación:
+    1. Editá las rutas de abajo para que apunten a tu instalación real.
+    2. Copialo a ~/Library/LaunchAgents/com.inboxzero.sync.plist
+    3. cargá: launchctl load ~/Library/LaunchAgents/com.inboxzero.sync.plist
+    4. Para descargarlo: launchctl unload ~/Library/LaunchAgents/com.inboxzero.sync.plist
+
+  El job corre cuando la Mac se enciende (RunAtLoad) y cada 300s mientras está prendida.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.inboxzero.sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/roldanjorgex/inboxzero/sync/sync_to_obsidian.py</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>INBOXZERO_API_URL</key>
+        <string>https://tu-bot.up.railway.app</string>
+        <key>INBOXZERO_API_KEY</key>
+        <string>PEGAR_TU_SYNC_API_KEY_ACÁ</string>
+        <key>OBSIDIAN_VAULT_PATH</key>
+        <string>/Users/roldanjorgex/second-brain</string>
+        <key>INBOXZERO_SUBDIR</key>
+        <string>_Inbox</string>
+        <key>INBOXZERO_REMINDERS_SUBDIR</key>
+        <string>_Inbox</string>
+    </dict>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/roldanjorgex/Library/Logs/inboxzero-sync.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/roldanjorgex/Library/Logs/inboxzero-sync.err.log</string>
+</dict>
+</plist>

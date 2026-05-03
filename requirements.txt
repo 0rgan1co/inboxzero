@@ -1,0 +1,6 @@
+python-telegram-bot==21.6
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+python-dotenv==1.0.1
+# zoneinfo está en stdlib desde Python 3.9, no hace falta dep extra.
+# anthropic SDK NO se usa: las llamadas a Claude van por urllib.
