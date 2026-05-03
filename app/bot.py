@@ -1,8 +1,11 @@
 """Handlers de Telegram. Recibe mensajes, clasifica, persiste en SQLite.
 
-v2 agrega: /recordar /recordatorios /cancelar /digest /id
+v2: /recordar /recordatorios /cancelar /digest /id
+v3: handler para audios/voz → Whisper local → captura tipo idea
 """
 import logging
+import os
+import tempfile
 
 from telegram import Update
 from telegram.ext import (
@@ -13,7 +16,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import classify, config, db, digest, duration
+from . import classify, config, db, digest, duration, transcribe
 
 log = logging.getLogger("inboxzero.bot")
 
@@ -221,6 +224,99 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler para nota de voz / audio file → transcribe con Whisper local."""
+    if not update.effective_message or not update.effective_user:
+        return
+    if not _is_authorized(update):
+        await update.effective_message.reply_text(
+            f"{UNAUTHORIZED}\n\nTu user_id es: {update.effective_user.id}"
+        )
+        return
+
+    msg = update.effective_message
+    voice = msg.voice or msg.audio
+    if not voice:
+        return
+
+    if not transcribe.is_ready():
+        await msg.reply_text(
+            "⚠️ Whisper no está disponible. "
+            "Verificá WHISPER_ENABLED y los logs del container."
+        )
+        return
+
+    duration_s = voice.duration or 0
+    status = await msg.reply_text(
+        f"🎙️ Transcribiendo {'nota de voz' if msg.voice else 'audio'} "
+        f"({duration_s}s)... esto puede tardar."
+    )
+
+    tmp_path = None
+    try:
+        # Descargar archivo de Telegram
+        tg_file = await voice.get_file()
+        suffix = ".ogg" if msg.voice else (".m4a" if msg.audio else ".bin")
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir="/tmp") as tmp:
+            tmp_path = tmp.name
+        await tg_file.download_to_drive(tmp_path)
+
+        # Transcribir (corre en thread pool, no bloquea otros mensajes)
+        text = await transcribe.transcribe(tmp_path)
+    except Exception as exc:
+        log.exception("Error transcribiendo audio: %s", exc)
+        await status.edit_text(f"❌ Error transcribiendo: {exc}")
+        return
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    if not text:
+        await status.edit_text("⚠️ No pude transcribir nada. Audio vacío o no entendible.")
+        return
+
+    # Guardar como captura tipo "idea"
+    payload = {
+        "message_id": msg.message_id,
+        "chat_id": msg.chat_id,
+        "user_id": update.effective_user.id,
+        "username": update.effective_user.username,
+        "date": msg.date.isoformat() if msg.date else None,
+        "voice_duration_s": duration_s,
+        "voice_file_id": voice.file_id,
+        "voice_mime_type": getattr(voice, "mime_type", None),
+        "transcribed_text": text,
+        "whisper_model": config.WHISPER_MODEL,
+    }
+
+    inserted_id = db.insert_message(
+        telegram_msg_id=msg.message_id,
+        chat_id=msg.chat_id,
+        user_id=update.effective_user.id,
+        username=update.effective_user.username,
+        text=text,
+        classification="idea",
+        raw_payload=payload,
+    )
+
+    if inserted_id is None:
+        await status.edit_text(
+            f"🎙️ Transcripto, pero ya tenía este mensaje guardado.\n\n_Texto:_\n{text}",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Reply con la transcripción + confirmación
+    await status.edit_text(
+        f"💡🎙️ Audio transcripto y guardado como *idea* (id #{inserted_id}).\n\n"
+        f"_Transcripción ({config.WHISPER_MODEL}, {duration_s}s):_\n\n{text}",
+        parse_mode="Markdown",
+    )
+
+
 def build_application() -> Application:
     if not config.TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN vacío.")
@@ -240,6 +336,11 @@ def build_application() -> Application:
     # Comandos que se persisten como mensajes
     for cmd in ("idea", "pedido", "tarea", "nota"):
         application.add_handler(CommandHandler(cmd, handle_message))
+
+    # v3: voz / audio → Whisper local
+    application.add_handler(
+        MessageHandler(filters.VOICE | filters.AUDIO, handle_voice)
+    )
 
     # Texto sin comando
     application.add_handler(

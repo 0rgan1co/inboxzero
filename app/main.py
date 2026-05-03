@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from . import api, bot, config, db, digest, reminders, web
+from . import api, bot, config, db, digest, reminders, transcribe, web
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +23,9 @@ async def lifespan(app: FastAPI):
 
     db.init_db()
     log.info("DB inicializada en %s", config.DB_PATH)
+
+    # Cargar modelo Whisper (si está habilitado). Tarda ~5-15s.
+    transcribe.load_model()
 
     application = None
     background_tasks: list[asyncio.Task] = []
@@ -46,10 +49,11 @@ async def lifespan(app: FastAPI):
             log.info("Schedulers arrancados (reminders + digest).")
 
             log.info(
-                "Features: LLM=%s, digest=%s, web_ui=%s",
+                "Features: LLM=%s, digest=%s, web_ui=%s, whisper=%s",
                 "on" if config.llm_enabled() else "off",
                 "on" if config.DIGEST_ENABLED else "off",
                 "on" if config.WEB_UI_ENABLED else "off",
+                f"on ({config.WHISPER_MODEL})" if transcribe.is_ready() else "off",
             )
         except Exception:
             log.exception("No pude arrancar el bot.")
@@ -96,6 +100,8 @@ def healthz() -> dict:
             "llm": config.llm_enabled(),
             "digest": config.DIGEST_ENABLED,
             "web_ui": config.WEB_UI_ENABLED,
+            "whisper": transcribe.is_ready(),
+            "whisper_model": config.WHISPER_MODEL if transcribe.is_ready() else None,
         },
     }
 

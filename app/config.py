@@ -54,6 +54,11 @@ DIGEST_CHAT_ID: int = _int(os.environ.get("DIGEST_CHAT_ID"), 0)
 
 WEB_UI_ENABLED: bool = _bool(os.environ.get("WEB_UI_ENABLED"), default=True)
 
+# --- v3: Whisper local ---
+WHISPER_ENABLED: bool = _bool(os.environ.get("WHISPER_ENABLED"), default=True)
+WHISPER_MODEL: str = os.environ.get("WHISPER_MODEL", "base").strip()
+WHISPER_LANGUAGE: str = os.environ.get("WHISPER_LANGUAGE", "es").strip()
+
 
 def validate() -> list[str]:
     errors: list[str] = []
