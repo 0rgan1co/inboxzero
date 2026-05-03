@@ -1,0 +1,25 @@
+services:
+  inboxzero:
+    build: .
+    image: inboxzero:latest
+    container_name: inboxzero
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Override DB_PATH para que apunte al volumen montado
+      DB_PATH: /data/inboxzero.db
+      PORT: "8000"
+    volumes:
+      - inboxzero_data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  inboxzero_data:
+    driver: local
