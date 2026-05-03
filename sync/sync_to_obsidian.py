@@ -16,6 +16,8 @@ Uso:
 
 También se puede crear un archivo .env con esas vars.
 """
+from __future__ import annotations
+
 import json
 import os
 import re
