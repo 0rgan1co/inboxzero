@@ -101,6 +101,22 @@ def write_message(item: dict, dest_dir: Path) -> Path:
     filename = f"{dt.strftime('%Y-%m-%d-%H%M%S')}-{classification}-{slug}.md"
     path = dest_dir / filename
 
+    triage_decision = item.get("triage_decision") or ""
+    triage_target = item.get("triage_target") or ""
+    triage_at = item.get("triage_at") or ""
+
+    # Tags: agregar tag de triage si aplica
+    extra_tags = []
+    if triage_decision == "derivar":
+        extra_tags.append("triage-derivar")
+        if triage_target:
+            extra_tags.append(f"agente-{triage_target}")
+    elif triage_decision == "guardar":
+        extra_tags.append("triage-guardar")
+    elif triage_decision == "descartar":
+        extra_tags.append("triage-descartar")
+    tags_str = "[inbox-zero, captura" + ("".join(f", {t}" for t in extra_tags)) + "]"
+
     frontmatter = (
         "---\n"
         "source: telegram\n"
@@ -112,7 +128,10 @@ def write_message(item: dict, dest_dir: Path) -> Path:
         f"username: {item.get('username') or ''}\n"
         f"local_id: {item.get('id')}\n"
         "status: new\n"
-        "tags: [inbox-zero, captura]\n"
+        f"triage_decision: {triage_decision}\n"
+        f"triage_target: {triage_target}\n"
+        f"triage_at: {triage_at}\n"
+        f"tags: {tags_str}\n"
         "---\n\n"
     )
     body = f"# {classification.capitalize()}\n\n{text}\n\n---\n*Capturado vía @ceroinbox_bot*\n"

@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 
+-- v3: triage. Columnas opcionales (se agregan via _apply_migrations si no existen).
+
 -- v2: recordatorios
 CREATE TABLE IF NOT EXISTS reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,10 +49,28 @@ def _ensure_dir(path: str) -> None:
     parent.mkdir(parents=True, exist_ok=True)
 
 
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Migrations idempotentes: agrega columnas si no existen.
+
+    SQLite no soporta IF NOT EXISTS en ALTER TABLE, así que checkeamos primero.
+    """
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+    new_cols = [
+        ("triage_decision", "TEXT"),       # 'derivar' | 'guardar' | 'descartar'
+        ("triage_target",   "TEXT"),       # nombre del agente, ej 'tres-monos'
+        ("triage_at",       "TEXT"),       # ISO timestamp UTC
+    ]
+    for col, coltype in new_cols:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE messages ADD COLUMN {col} {coltype}")
+    conn.commit()
+
+
 def init_db() -> None:
     _ensure_dir(config.DB_PATH)
     with _connect() as conn:
         conn.executescript(SCHEMA)
+        _apply_migrations(conn)
         conn.commit()
 
 
@@ -98,7 +118,8 @@ def list_pending(limit: int = 500) -> list[dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT id, telegram_msg_id, chat_id, user_id, username,
-                   text, classification, status, created_at
+                   text, classification, status, created_at,
+                   triage_decision, triage_target, triage_at
             FROM messages
             WHERE status = 'pending'
             ORDER BY created_at ASC
@@ -107,6 +128,31 @@ def list_pending(limit: int = 500) -> list[dict[str, Any]]:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def set_triage(msg_id: int, *, decision: str, target: str | None = None) -> int:
+    """Marca una captura con la decisión de triage. decision: 'derivar' | 'guardar' | 'descartar'."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE messages
+               SET triage_decision = ?, triage_target = ?, triage_at = datetime('now')
+               WHERE id = ?""",
+            (decision, target, msg_id),
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+def get_message(msg_id: int) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT id, telegram_msg_id, chat_id, user_id, username,
+                      text, classification, status, created_at,
+                      triage_decision, triage_target, triage_at
+               FROM messages WHERE id = ?""",
+            (msg_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def list_messages(limit: int = 100, offset: int = 0, status: str | None = None) -> list[dict[str, Any]]:
